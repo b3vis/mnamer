@@ -9,6 +9,7 @@ from mnamer.exceptions import (
     MnamerNotFoundException,
     MnamerSkipException,
 )
+from mnamer.result_counter import ResultCounter
 from mnamer.settings import Settings
 from mnamer.target import Target
 from mnamer.types import MessageType
@@ -75,15 +76,8 @@ def run():
     tty.msg("\ntargets", debug=True)
     tty.msg(targets or [None], debug=True)
 
-    # exit early if no media files are found
-    total_count = len(targets)
-    if total_count == 0:
-        tty.msg("", debug=True)
-        tty.msg("no media files found", MessageType.ALERT)
-        raise SystemExit(0)
-
     # main program loop
-    success_count = 0
+    counter = ResultCounter(len(targets))
     for target in targets:
 
         # announce file
@@ -113,6 +107,7 @@ def run():
             tty.msg("network Error", MessageType.ALERT)
         if not matches and settings.no_guess:
             tty.msg("skipping (noguess)", MessageType.ALERT)
+            counter.skip += 1
             continue
         try:
             if settings.batch:
@@ -124,9 +119,11 @@ def run():
                 match = tty.prompt(matches)
         except (MnamerSkipException, KeyboardInterrupt):
             tty.msg("skipping as per user request", MessageType.ALERT)
+            counter.skip += 1
             continue
         except MnamerAbortException:
             tty.msg("aborting as per user request", MessageType.ERROR)
+            counter.fail += counter.remaining
             break
 
         # update metadata
@@ -144,27 +141,19 @@ def run():
 
         # rename and move file
         if settings.test:
-            success_count += 1
+            counter.success += 1
             continue
         try:
             target.relocate()
         except MnamerException:
             tty.msg("FAILED!", MessageType.ERROR)
+            counter.fail += 1
         else:
             tty.msg("OK!", MessageType.SUCCESS)
-            success_count += 1
+            counter.success += 1
 
     # report results
-    if success_count == 0:
-        message_type = MessageType.ERROR
-    elif success_count == total_count:
-        message_type = MessageType.SUCCESS
-    else:
-        message_type = MessageType.ALERT
-    tty.msg(
-        f"\n{success_count} out of {total_count} files processed successfully",
-        message_type,
-    )
+    tty.msg("\n" + counter.report, counter.result)
 
 
 if __name__ == "__main__":
